@@ -2,6 +2,7 @@
 A lightweight IoC dependency injection container for Golang
 [![Build status](https://github.com/studyzy/iocgo/workflows/Go/badge.svg)](https://github.com/studyzy/iocgo/actions)
 
+English | [中文](https://github.com/studyzy/iocgo/blob/main/README-zh_CN.md)
 # How to use
 ## Installation
 it requires Go 1.15 or newer versions.
