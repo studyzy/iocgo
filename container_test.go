@@ -141,11 +141,14 @@ func TestContainer_RegisterInterface(t *testing.T) {
 	container := NewContainer()
 	container.Register(NewFoobar)
 	var f Fooer
-	container.Register(NewFoo, Interface(&f))
+	err := container.Register(NewFoo, Interface(&f))
+	assert.Nil(t, err)
 	var b Barer
-	container.Register(NewBar, Interface(&b))
+	err = container.Register(NewBar, Interface(&b))
+	assert.Nil(t, err)
 	var fb Foobarer
-	container.Resolve(&fb)
+	err = container.Resolve(&fb)
+	assert.Nil(t, err)
 	fb.Say(123, "Hello World")
 	t.Log(log)
 	assert.True(t, strings.Contains(log, "foo:"))
@@ -192,9 +195,9 @@ func TestContainer_RegisterInstance(t *testing.T) {
 	container := NewContainer()
 	container.Register(NewFoobar)
 	container.Register(func() Fooer { return &Foo{} })
-	b := NewBar()
+	b := &Bar{}
 	var bar Barer
-	container.RegisterInstance(&bar, b) // register interface -> instance
+	container.RegisterInstance(&bar, b, Default()) // register interface -> instance
 	var fb Foobarer
 	container.Resolve(&fb)
 	fb.Say(123, "Hello World")
@@ -229,21 +232,21 @@ func TestContainer_Resolve(t *testing.T) {
 
 func TestContainer_Call(t *testing.T) {
 	log = ""
-	container := NewContainer()
-	container.Register(NewFoobar)
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
 
-	container.Call(SayHi1)
+	Register(NewFoobar)
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
+
+	Call(SayHi1)
 	t.Log(log)
 	assert.True(t, strings.Contains(log, "foo:"))
 	assert.True(t, strings.Contains(log, "bar:"))
 	log = ""
-	container.Call(SayHi2, CallArguments(map[int]interface{}{2: "Devin"}))
+	Call(SayHi2, CallArguments(map[int]interface{}{2: "Devin"}))
 	assert.True(t, strings.Contains(log, "Devin"))
 	log = ""
-	container.Register(func() Barer { return &Baz{} }, Name("baz"))
-	container.Call(SayHi1, CallDependsOn(map[int]string{1: "baz"}))
+	Register(func() Barer { return &Baz{} }, Name("baz"))
+	Call(SayHi1, CallDependsOn(map[int]string{1: "baz"}))
 	assert.True(t, strings.Contains(log, "foo:"))
 	assert.True(t, strings.Contains(log, "baz:"))
 
@@ -257,4 +260,21 @@ func SayHi2(f Fooer, b Barer, hi string) {
 	f.Foo(len(hi))
 	b.Bar(hi)
 	Println("SayHi")
+}
+
+func TestContainer_Reset(t *testing.T) {
+	log = ""
+	Register(NewFoobar)
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	err := Resolve(&fb)
+	assert.Nil(t, err)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+	Reset()
+	err = Resolve(&fb)
+	assert.NotNil(t, err)
 }

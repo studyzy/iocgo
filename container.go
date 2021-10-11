@@ -11,8 +11,8 @@ import (
 type binding struct {
 	specifiedParameters map[int]interface{} //构造对象时参数指定的值
 	dependsOn           map[int]string      //构造对象时依赖的其他对象的name
-	resolver            interface{}         // resolver函数指针，用于构造对应的实例
-	instance            interface{}         // 在默认单例情况下，存储对应的绑定的实例
+	constructor         interface{}         //构造函数指针，用于构造对应的实例
+	instance            interface{}         //在默认单例情况下，存储对应的绑定的实例
 	isTransient         bool                //是否是临时对象
 	isDefault           bool                //是否是默认对象
 	name                string              //对应的名字
@@ -26,7 +26,7 @@ func (b *binding) resolve(c Container) (interface{}, error) {
 		return b.instance, nil
 	}
 
-	instList, err := c.invoke(b.resolver, b.specifiedParameters, b.dependsOn, b.optionalIndexes)
+	instList, err := c.invoke(b.constructor, b.specifiedParameters, b.dependsOn, b.optionalIndexes)
 	if err != nil {
 		return nil, err
 	}
@@ -67,16 +67,16 @@ func NewContainer() Container {
 
 //Register 注册一个对象的构造函数到容器中，该构造函数接收其他interface对象或者值对象作为参数，返回interface对象
 //注意返回的应该是interface，而不应该是具体的struct类型的指针
-func (c Container) Register(resolver interface{}, options ...Option) error {
+func (c Container) Register(constructor interface{}, options ...Option) error {
 	//检查resolver必须是一个构造函数
-	reflectedResolver := reflect.TypeOf(resolver)
+	reflectedResolver := reflect.TypeOf(constructor)
 	if reflectedResolver.Kind() != reflect.Func {
-		return errors.New("container: the resolver must be a function")
+		return errors.New("container: the constructor must be a function")
 	}
 	//遍历构造函数的输出，找到具体构造的类型，并将这些类型放入到container中
 	for i := 0; i < reflectedResolver.NumOut(); i++ {
 		//构造新的binding对象
-		b := &binding{resolver: resolver, specifiedParameters: make(map[int]interface{})}
+		b := &binding{constructor: constructor, specifiedParameters: make(map[int]interface{})}
 		for _, op := range options {
 			err := op(b)
 			if err != nil {
@@ -220,7 +220,7 @@ func (c Container) invoke(function interface{}, specifiedParameters map[int]inte
 	return returnList, nil
 }
 
-//Resolve 传入接口的指针，获得对应的实例
+//Resolve input interface, resolve instance. 传入接口的指针，获得对应的实例
 func (c Container) Resolve(abstraction interface{}, options ...ResolveOption) error {
 	receiverType := reflect.TypeOf(abstraction)
 	if receiverType == nil {
@@ -285,9 +285,6 @@ func (c Container) Call(function interface{}, options ...CallOption) ([]interfac
 	}
 	return c.invoke(function, callOption.args, callOption.dependsOn, nil) //TODO optional
 
-}
-func (c Container) fillStruct(structure interface{}) error {
-	return nil
 }
 
 // Fill takes a struct and resolves the fields with the tag `optional:"true"` or `name:"dependOnName1"`
@@ -372,8 +369,9 @@ func Resolve(abstraction interface{}, options ...ResolveOption) error {
 	return container.Resolve(abstraction, options...)
 }
 
-func Register(resolver interface{}, options ...Option) error {
-	return container.Register(resolver, options...)
+//Register register interface-> constructor
+func Register(constructor interface{}, options ...Option) error {
+	return container.Register(constructor, options...)
 }
 
 // Reset deletes all the existing bindings and empties the container instance.
@@ -381,10 +379,18 @@ func Reset() {
 	container.Reset()
 }
 
+//Fill takes a struct and resolves the fields with the tag `optional:"true"` or `name:"dependOnName1"`
+//argument must be a struct point
 func Fill(structure interface{}) error {
 	return container.Fill(structure)
 }
 
+//Call invoke function that use interface as parameters
+func Call(function interface{}, options ...CallOption) ([]interface{}, error) {
+	return container.Call(function, options...)
+}
+
+//RegisterInstance register interface->instance into container
 func RegisterInstance(interfacePtr interface{}, instance interface{}, options ...Option) error {
 	return container.RegisterInstance(interfacePtr, instance, options...)
 }
