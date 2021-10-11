@@ -1,7 +1,7 @@
 # iocgo
 A lightweight IoC dependency injection container for Golang
 [![Build status](https://github.com/studyzy/iocgo/workflows/Go/badge.svg)](https://github.com/studyzy/iocgo/actions)
-
+[![Coverage Status](https://coveralls.io/repos/github/studyzy/iocgo/badge.svg)](https://coveralls.io/github/studyzy/iocgo)
 # How to use
 ## Installation
 it requires Go 1.15 or newer versions.
