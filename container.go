@@ -1,4 +1,3 @@
-
 package iocgo
 
 import (
@@ -251,11 +250,16 @@ func (c Container) Resolve(abstraction interface{}, options ...ResolveOption) er
 			if len(option.args) > 0 {
 				args = option.args
 			}
-			instance, err := c.invoke(b.resolver, args, b.dependsOn, b.optionalIndexes)
+			oldArgs := b.specifiedParameters
+			b.specifiedParameters = args
+			defer func() {
+				b.specifiedParameters = oldArgs
+			}()
+			instance, err := b.resolve(c)
 			if err != nil {
 				return err //errors.New("resolve type: " + receiverType.String() + " " + err.Error())
 			}
-			reflect.ValueOf(abstraction).Elem().Set(reflect.ValueOf(instance[0]))
+			reflect.ValueOf(abstraction).Elem().Set(reflect.ValueOf(instance))
 			return nil
 		}
 
@@ -281,6 +285,9 @@ func (c Container) Call(function interface{}, options ...CallOption) ([]interfac
 	}
 	return c.invoke(function, callOption.args, callOption.dependsOn, nil) //TODO optional
 
+}
+func (c Container) fillStruct(structure interface{}) error {
+	return nil
 }
 
 // Fill takes a struct and resolves the fields with the tag `optional:"true"` or `name:"dependOnName1"`
@@ -344,7 +351,7 @@ func (c Container) Fill(structure interface{}) error {
 			}
 			return nil
 		}
-		return errors.New("container: invalid structure, input type:" + receiverType.Kind().String())
+		return errors.New("container: invalid structure, input elem type:" + elem.Kind().String())
 	}
 
 	return errors.New("container: invalid structure, input type:" + receiverType.Kind().String())

@@ -1,343 +1,260 @@
-
-
 package iocgo
 
 import (
-	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-type Logger interface {
-	Debug(msg string)
-}
-type GoLogger struct {
-	name string
+var log string
+
+func Println(a ...interface{}) {
+	msg := fmt.Sprintln(a...)
+	log += msg
+	fmt.Println(msg)
 }
 
-func (l GoLogger) Debug(msg string) {
-	fmt.Println(l.name, msg)
-}
-
-type Store interface {
-	Save(height uint64)
-}
-type LevelDBStore struct {
-	heightList []uint64
-}
-
-func (s *LevelDBStore) Save(h uint64) {
-	s.heightList = append(s.heightList, h)
-	fmt.Println("LevelDB save height", s.heightList)
-}
-
-type MySQLStore struct {
-}
-
-func (s *MySQLStore) Save(h uint64) {
-	fmt.Println("MySQL save height", h)
-}
-
-type BlockStore interface {
-	SaveBlock(h uint64)
-}
-type CMBlockStore struct {
-	store   Store
-	l       Logger
-	chainId string
-}
-
-func (cmstore *CMBlockStore) SaveBlock(h uint64) {
-	if cmstore.l != nil {
-		cmstore.l.Debug(cmstore.chainId + " start ...")
-	} else {
-		fmt.Println(cmstore.chainId, "no logger")
-	}
-	cmstore.store.Save(h)
-	if cmstore.l != nil {
-		cmstore.l.Debug(cmstore.chainId + " end.")
-	}
-}
-func NewBlockStore(store Store, l Logger, chainId string) BlockStore {
-	fmt.Println("New BlockStore")
-	return &CMBlockStore{
-		store:   store,
-		l:       l,
-		chainId: chainId,
-	}
-}
-func NewBlockStoreImpl(store Store, l Logger, chainId string) *CMBlockStore {
-	fmt.Println("New BlockStore implement")
-	return &CMBlockStore{
-		store:   store,
-		l:       l,
-		chainId: chainId,
-	}
-}
-
-type InitBlockStoreArg struct {
-	store   Store  `name:"leveldb"`
-	l       Logger `optional:"true"`
-	chainId string
-}
-
-func InitBlockStore(input *InitBlockStoreArg) BlockStore {
-	fmt.Println("Init BlockStore")
-	return &CMBlockStore{
-		store:   input.store,
-		l:       input.l,
-		chainId: input.chainId,
-	}
-}
-func TestContainer_RegisterParameters(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} })
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-	var store Store
-	container.Resolve(&store)
-	store.Save(456)
-}
-func TestContainer_RegisterDefault(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-
-func TestContainer_RegisterOptional(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}), Optional(1))
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-func TestContainer_RegisterInterface(t *testing.T) {
-	container := NewContainer()
-	var s *BlockStore
-	container.Register(NewBlockStoreImpl, Parameters(map[int]interface{}{2: "chain1"}), Interface(s))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-	var l *Logger
-	err = container.Register(NewBlockStoreImpl, Parameters(map[int]interface{}{2: "chain1"}), Interface(l), Default())
-	assert.NotNil(t, err)
-	t.Log(err)
-}
-func TestContainer_RegisterLifestyleTransient(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store {
-		fmt.Println("Init new LevelDBStore")
-		return &LevelDBStore{heightList: make([]uint64, 0)}
-	}, Lifestyle(true))
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-	cmStore.SaveBlock(456)
-	var store Store
-	container.Resolve(&store)
-	store.Save(789)
-}
-func TestContainer_RegisterDependsOn(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}), DependsOn(map[int]string{0: "leveldb"}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-
-func TestContainer_RegisterInstance(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}), DependsOn(map[int]string{0: "leveldb"}))
-	l := &GoLogger{name: "mylogger"}
-	var log Logger
-	err := container.RegisterInstance(&log, l)
-	assert.Nil(t, err)
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err = container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-func TestContainer_Resolve(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewBlockStore, Parameters(map[int]interface{}{2: "chain1"}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore, Arguments(map[int]interface{}{2: "chain2"}))
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-	var store Store
-	err = container.Resolve(&store, ResolveName("leveldb"))
-	assert.Nil(t, err)
-	store.Save(456)
-	err = container.Resolve(&store, ResolveName("leveldb1"))
-	assert.NotNil(t, err)
-	t.Log(err)
-}
-func TestContainer_RegisterStructInitArg(t *testing.T) {
-	container := NewContainer()
-	arg := &InitBlockStoreArg{chainId: "chain3"}
-	container.Register(InitBlockStore, Parameters(map[int]interface{}{0: arg}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	err := container.Resolve(&cmStore)
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-
-func TestContainer_Fill(t *testing.T) {
-	container := NewContainer()
-	arg := &InitBlockStoreArg{chainId: "chain3"}
-	container.Register(InitBlockStore, Parameters(map[int]interface{}{0: arg}))
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	err := container.Fill(arg)
-	assert.Nil(t, err)
-	t.Logf("%#v", arg)
-}
-func TestContainer_ResolveStructInitArg(t *testing.T) {
-	container := NewContainer()
-	container.Register(InitBlockStore)
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var cmStore BlockStore
-	arg := &InitBlockStoreArg{chainId: "chain3"}
-	err := container.Resolve(&cmStore, Arguments(map[int]interface{}{0: arg}))
-	assert.Nil(t, err)
-	cmStore.SaveBlock(123)
-}
-func TestContainer_ResolveStructInitArgOptional(t *testing.T) {
-	container := NewContainer()
-	arg := &InitBlockStoreArg{chainId: "chain3"}
-	container.Register(InitBlockStore, Parameters(map[int]interface{}{0: arg}))
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	err := container.Fill(arg)
-	assert.Nil(t, err)
-	t.Logf("%#v", arg)
-}
-
-type MultiStoreArg struct {
-	store []Store
-	l     Logger
-}
-
-func TestContainer_FillSlice(t *testing.T) {
-	container := NewContainer()
-	arg := &MultiStoreArg{}
-	container.Register(InitBlockStore)
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	err := container.Fill(arg)
-	assert.Nil(t, err)
-	t.Logf("%#v", arg)
-	for i, store := range arg.store {
-		arg.l.Debug("call store.save ...")
-		store.Save(uint64(i))
-	}
-}
-
-func TestContainer_Call(t *testing.T) {
-	container := NewContainer()
-	container.Register(func() Logger { return GoLogger{} })
-	container.Register(func() Store { return &LevelDBStore{} }, Name("leveldb"))
-	container.Register(func() Store { return &MySQLStore{} }, Name("mysql"), Default())
-	var save1 = func(l Logger, store Store, height uint64) {
-		l.Debug("start...")
-		store.Save(height)
-		l.Debug("end.")
-	}
-	var save2 = func(l Logger, store Store) {
-		save1(l, store, 1234)
-	}
-	var saveErr = func(l Logger, store Store) error {
-		return errors.New("not implement")
-	}
-	_, err := container.Call(save2)
-	assert.Nil(t, err)
-	_, err = container.Call(save2, CallDependsOn(map[int]string{1: "leveldb"}))
-	assert.Nil(t, err)
-	_, err = container.Call(save1, CallDependsOn(map[int]string{1: "mysql"}), CallArguments(map[int]interface{}{2: uint64(1234)}))
-	assert.Nil(t, err)
-	_, err = container.Call(saveErr, CallDependsOn(map[int]string{1: "leveldb"}))
-	assert.NotNil(t, err)
-	t.Log(err)
-}
 type Fooer interface {
 	Foo(int)
 }
 type Foo struct {
 }
 
-func (Foo)Foo(i int)  {
-	fmt.Println("foo:",i)
+func NewFoo() *Foo {
+	return &Foo{}
 }
+func (Foo) Foo(i int) {
+	Println("foo:", i)
+}
+
 type Barer interface {
 	Bar(string)
 }
 type Bar struct {
+}
 
+func NewBar() *Bar {
+	return &Bar{}
 }
-func (Bar) Bar(s string){
-	fmt.Println("bar:",s)
+func (Bar) Bar(s string) {
+	Println("bar:", s)
 }
+
 type Foobarer interface {
-	Say(int,string)
+	Say(int, string)
 }
 type Foobar struct {
 	foo Fooer
 	bar Barer
+	msg string
 }
-func NewFoobar(f Fooer,b Barer) Foobarer{
+
+func NewFoobar(f Fooer, b Barer) Foobarer {
 	return &Foobar{
 		foo: f,
 		bar: b,
 	}
 }
-func (f Foobar)Say(i int ,s string)  {
-	f.foo.Foo(i)
-	f.bar.Bar(s)
+func NewFoobarWithMsg(f Fooer, b Barer, msg string) Foobarer {
+	//Println("NewFoobarWithMsg~~~~~~~")
+	return &Foobar{
+		foo: f,
+		bar: b,
+		msg: msg,
+	}
+}
+func (f *Foobar) Say(i int, s string) {
+	if f.foo != nil {
+		f.foo.Foo(i)
+	}
+	if f.bar != nil {
+		f.bar.Bar(s)
+	}
+	f.msg += fmt.Sprintf("[%d,%s]", i, s)
+	Println("Foobar msg:", f.msg)
 }
 func TestContainer_SimpleRegister(t *testing.T) {
+	log = ""
 	container := NewContainer()
 	container.Register(NewFoobar)
 	container.Register(func() Fooer { return &Foo{} })
 	container.Register(func() Barer { return &Bar{} })
 	var fb Foobarer
 	container.Resolve(&fb)
-	fb.Say(123,"Hello World")
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+
+}
+func TestContainer_RegisterParameters(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "studyzy"}))
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+	assert.True(t, strings.Contains(log, "studyzy"))
+}
+
+type Baz struct{}
+
+func (Baz) Bar(s string) {
+	Println("baz:", s)
+}
+func TestContainer_RegisterDefault(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar)
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} })
+	container.Register(func() Barer { return &Baz{} }, Default())
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "baz:"))
+}
+
+func TestContainer_RegisterOptional(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar, Optional(0))
+	container.Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, !strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+}
+func TestContainer_RegisterInterface(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar)
+	var f Fooer
+	container.Register(NewFoo, Interface(&f))
+	var b Barer
+	container.Register(NewBar, Interface(&b))
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+}
+func TestContainer_RegisterLifestyleTransient(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "studyzy"}), Lifestyle(true))
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+	assert.True(t, strings.Contains(log, "123"))
+	log = ""
+	var fb2 Foobarer
+	container.Resolve(&fb2) //resolve a new instance since Lifestyle(transient=true)
+	fb2.Say(456, "Hi")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "Hi"))
+	assert.True(t, !strings.Contains(log, "123"))
+
+}
+func TestContainer_RegisterDependsOn(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar, DependsOn(map[int]string{1: "bar"})) //depend on "bar" name Barer
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} }, Name("bar"))
+	container.Register(func() Barer { return &Baz{} }, Name("baz"))
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+}
+func TestContainer_RegisterInstance(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar)
+	container.Register(func() Fooer { return &Foo{} })
+	b := NewBar()
+	var bar Barer
+	container.RegisterInstance(&bar, b) // register interface -> instance
+	var fb Foobarer
+	container.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+}
+func TestContainer_Resolve(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "studyzy"}))                  //default Foobar register
+	container.Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "Devin"}), Name("instance2")) //named Foobar register
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	container.Resolve(&fb, Arguments(map[int]interface{}{2: "arg2"})) //resolve use new argument to replace register parameters
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+	assert.True(t, strings.Contains(log, "arg2"))
+	assert.False(t, strings.Contains(log, "studyzy"))
+	log = ""
+	var fb2 Foobarer
+	err := container.Resolve(&fb2, ResolveName("instance2")) //resolve by name
+	assert.Nil(t, err)
+	fb2.Say(456, "New World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "Devin"))
+
+}
+
+func TestContainer_Call(t *testing.T) {
+	log = ""
+	container := NewContainer()
+	container.Register(NewFoobar)
+	container.Register(func() Fooer { return &Foo{} })
+	container.Register(func() Barer { return &Bar{} })
+
+	container.Call(SayHi1)
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+	log = ""
+	container.Call(SayHi2, CallArguments(map[int]interface{}{2: "Devin"}))
+	assert.True(t, strings.Contains(log, "Devin"))
+	log = ""
+	container.Register(func() Barer { return &Baz{} }, Name("baz"))
+	container.Call(SayHi1, CallDependsOn(map[int]string{1: "baz"}))
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "baz:"))
+
+}
+func SayHi1(f Fooer, b Barer) {
+	f.Foo(1234)
+	b.Bar("hi")
+}
+
+func SayHi2(f Fooer, b Barer, hi string) {
+	f.Foo(len(hi))
+	b.Bar(hi)
+	Println("SayHi")
 }
