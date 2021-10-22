@@ -248,7 +248,9 @@ func (c Container) Resolve(abstraction interface{}, options ...ResolveOption) er
 			}
 			args := b.specifiedParameters
 			if len(option.args) > 0 {
-				args = option.args
+				for i, v := range option.args {
+					args[i] = v
+				}
 			}
 			oldArgs := b.specifiedParameters
 			b.specifiedParameters = args
