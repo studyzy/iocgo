@@ -235,9 +235,9 @@ func (c *Container) getBinding(theType reflect.Type, name string) (*binding, err
 		if name != "" {
 			if b, ok := namedBinding.namedBinding[name]; ok {
 				return b, nil
-			} else {
-				return nil, errors.New("container: no concrete found for: " + theType.String() + " name: " + name)
 			}
+			return nil, errors.New("container: no concrete found for: " + theType.String() + " name: " + name)
+
 		}
 		//没有通过name指定，那么就取默认的binding
 		return namedBinding.defaultBinding, nil
