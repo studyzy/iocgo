@@ -8,6 +8,10 @@ import (
 	"unsafe"
 )
 
+var (
+	errNotFound = errors.New("not found")
+)
+
 type binding struct {
 	specifiedParameters map[int]interface{} //构造对象时参数指定的值
 	dependsOn           map[int]string      //构造对象时依赖的其他对象的name
@@ -21,7 +25,7 @@ type binding struct {
 }
 
 // resolve creates an appropriate implementation of the related abstraction
-func (b *binding) resolve(c Container) (interface{}, error) {
+func (b *binding) resolve(c *Container) (interface{}, error) {
 	if b.instance != nil {
 		return b.instance, nil
 	}
@@ -58,16 +62,22 @@ func (nb *namedBinding) addNewBinding(b *binding, isDefault bool) {
 }
 
 // Container interface类型->map["name"]binding对象，如果没有命名实例，那么name就是""
-type Container map[reflect.Type]*namedBinding
+type Container struct {
+	bind  map[reflect.Type]*namedBinding
+	alias map[reflect.Type]reflect.Type
+}
 
 // NewContainer creates a new instance of the Container
-func NewContainer() Container {
-	return make(Container)
+func NewContainer() *Container {
+	return &Container{
+		bind:  make(map[reflect.Type]*namedBinding),
+		alias: make(map[reflect.Type]reflect.Type),
+	}
 }
 
 //Register 注册一个对象的构造函数到容器中，该构造函数接收其他interface对象或者值对象作为参数，返回interface对象
 //注意返回的应该是interface，而不应该是具体的struct类型的指针
-func (c Container) Register(constructor interface{}, options ...Option) error {
+func (c *Container) Register(constructor interface{}, options ...Option) error {
 	//检查resolver必须是一个构造函数
 	reflectedResolver := reflect.TypeOf(constructor)
 	if reflectedResolver.Kind() != reflect.Func {
@@ -90,10 +100,10 @@ func (c Container) Register(constructor interface{}, options ...Option) error {
 			}
 			resolveType = b.resolveTypes[i]
 		}
-		if namedBinding, has := c[resolveType]; has { //增加新binding
+		if namedBinding, has := c.bind[resolveType]; has { //增加新binding
 			namedBinding.addNewBinding(b, b.isDefault)
 		} else { //没有注册过这个接口的任何绑定
-			c[resolveType] = newNamedBinding(b)
+			c.bind[resolveType] = newNamedBinding(b)
 		}
 	}
 
@@ -103,7 +113,7 @@ func (c Container) Register(constructor interface{}, options ...Option) error {
 //RegisterInstance 注册一个对象的实例到容器中
 //参数interfacePtr 是一个接口的指针
 //参数instance 是实例值
-func (c Container) RegisterInstance(interfacePtr interface{}, instance interface{}, options ...Option) error {
+func (c *Container) RegisterInstance(interfacePtr interface{}, instance interface{}, options ...Option) error {
 	b := &binding{instance: instance}
 	for _, op := range options {
 		err := op(b)
@@ -111,21 +121,55 @@ func (c Container) RegisterInstance(interfacePtr interface{}, instance interface
 			return err
 		}
 	}
-	ptr := reflect.TypeOf(interfacePtr)
-	if ptr == nil || ptr.Kind() != reflect.Ptr {
-		return errors.New("interfacePtr must be a interface point, not a interface value")
+	t, err := getTypeFromInterface(interfacePtr)
+	if err != nil {
+		return err
 	}
-	t := ptr.Elem()
-	if namedBinding, has := c[t]; has { //增加新的绑定
+	if namedBinding, has := c.bind[t]; has { //增加新的绑定
 		namedBinding.addNewBinding(b, b.isDefault)
 	} else { //没有注册过这个接口的任何绑定
-		c[t] = newNamedBinding(b)
+		c.bind[t] = newNamedBinding(b)
 	}
 	return nil
 }
 
+//RegisterSubInterface 注册一个子接口到某个接口
+func (c *Container) RegisterSubInterface(subInterfacePtr interface{}, interfacePtr interface{}) error {
+	stype, err := getTypeFromInterface(subInterfacePtr)
+	if err != nil {
+		return err
+	}
+	itype, err := getTypeFromInterface(interfacePtr)
+	if err != nil {
+		return err
+	}
+	c.alias[stype] = itype
+	return nil
+}
+
+func (c *Container) SetDefaultBinding(interfacePtr interface{}, defaultName string) error {
+	itype, err := getTypeFromInterface(interfacePtr)
+	if err != nil {
+		return err
+	}
+	if nameBinding, ok := c.bind[itype]; ok {
+		if theBinding, found := nameBinding.namedBinding[defaultName]; found {
+			nameBinding.defaultBinding = theBinding
+			return nil
+		}
+	}
+	return errNotFound
+}
+func getTypeFromInterface(interfacePtr interface{}) (reflect.Type, error) {
+	ptr := reflect.TypeOf(interfacePtr)
+	if ptr == nil || ptr.Kind() != reflect.Ptr {
+		return nil, errors.New("interfacePtr must be a interface point, not a interface value")
+	}
+	return ptr.Elem(), nil
+}
+
 // arguments 通过容器获得一个函数的传入参数的值列表
-func (c Container) arguments(function interface{}, specifiedParameters map[int]interface{},
+func (c *Container) arguments(function interface{}, specifiedParameters map[int]interface{},
 	dependsOn map[int]string, optionalIndexes map[int]bool) ([]reflect.Value, error) {
 	reflectedFunction := reflect.TypeOf(function)
 	argumentsCount := reflectedFunction.NumIn()
@@ -158,28 +202,9 @@ func (c Container) arguments(function interface{}, specifiedParameters map[int]i
 			arguments[i] = reflect.ValueOf(specifiedValue)
 			continue
 		}
-
-		if namedBinding, exist := c[abstraction]; exist {
-			//从容器中找到了对应的binding
-			//如果使用DependsOn指定了依赖的对象的name，那么通过指定的name获取binding
-			if name, has := dependsOn[i]; has {
-				if b, ok := namedBinding.namedBinding[name]; ok {
-					instance, err := b.resolve(c)
-					if err != nil {
-						return nil, err
-					}
-					arguments[i] = reflect.ValueOf(instance)
-				} else {
-					return nil, errors.New("container: no concrete found for: " + abstraction.String() + " name: " + name)
-				}
-			} else { //没有通过DependsOn指定，那么就取默认的binding
-				instance, err := namedBinding.defaultBinding.resolve(c)
-				if err != nil {
-					return nil, err
-				}
-				arguments[i] = reflect.ValueOf(instance)
-			}
-		} else {
+		name := dependsOn[i]
+		b, err := c.getBinding(abstraction, name)
+		if err != nil {
 			//找不到该函数对应的参数类型的映射，如果是optional的，则设为空，否则报错
 			if _, optional := optionalIndexes[i]; optional {
 				arguments[i] = reflect.Zero(abstraction)
@@ -193,11 +218,38 @@ func (c Container) arguments(function interface{}, specifiedParameters map[int]i
 			}
 			return nil, errors.New("resolve type: " + resolveType + " no concrete found for: " + abstraction.String())
 		}
+
+		instance, err := b.resolve(c)
+		if err != nil {
+			return nil, err
+		}
+		arguments[i] = reflect.ValueOf(instance)
 	}
 	return arguments, nil
 }
 
-func (c Container) invoke(function interface{}, specifiedParameters map[int]interface{},
+func (c *Container) getBinding(theType reflect.Type, name string) (*binding, error) {
+	if namedBinding, exist := c.bind[theType]; exist {
+		//从容器中找到了对应的binding
+		//如果使用DependsOn指定了依赖的对象的name，那么通过指定的name获取binding
+		if name != "" {
+			if b, ok := namedBinding.namedBinding[name]; ok {
+				return b, nil
+			} else {
+				return nil, errors.New("container: no concrete found for: " + theType.String() + " name: " + name)
+			}
+		}
+		//没有通过name指定，那么就取默认的binding
+		return namedBinding.defaultBinding, nil
+	}
+	//找不到该函数对应的参数类型的映射，在alias中找
+	if aType, ok := c.alias[theType]; ok {
+		return c.getBinding(aType, name)
+	}
+	return nil, errNotFound
+}
+
+func (c *Container) invoke(function interface{}, specifiedParameters map[int]interface{},
 	dependsOn map[int]string, optionalIndexes map[int]bool) (
 	[]interface{}, error) {
 	args, err := c.arguments(function, specifiedParameters, dependsOn, optionalIndexes)
@@ -221,59 +273,49 @@ func (c Container) invoke(function interface{}, specifiedParameters map[int]inte
 }
 
 //Resolve input interface, resolve instance. 传入接口的指针，获得对应的实例
-func (c Container) Resolve(abstraction interface{}, options ...ResolveOption) error {
+func (c *Container) Resolve(abstraction interface{}, options ...ResolveOption) error {
 	receiverType := reflect.TypeOf(abstraction)
 	if receiverType == nil {
 		return errors.New("container: invalid abstraction")
 	}
-
+	option := &resolveOption{}
+	for _, op := range options {
+		err := op(option)
+		if err != nil {
+			return err
+		}
+	}
 	if receiverType.Kind() == reflect.Ptr {
 		elem := receiverType.Elem()
-		if concrete, exist := c[elem]; exist {
-			option := &resolveOption{}
-			for _, op := range options {
-				err := op(option)
-				if err != nil {
-					return err
-				}
-			}
-
-			b := concrete.defaultBinding
-			if option.name != "" {
-				var ok bool
-				b, ok = concrete.namedBinding[option.name]
-				if !ok {
-					return errors.New("no concrete found for " + elem.String() + " name:" + option.name)
-				}
-			}
-			args := b.specifiedParameters
-			if len(option.args) > 0 {
-				for i, v := range option.args {
-					args[i] = v
-				}
-			}
-			oldArgs := b.specifiedParameters
-			b.specifiedParameters = args
-			defer func() {
-				b.specifiedParameters = oldArgs
-			}()
-			instance, err := b.resolve(c)
-			if err != nil {
-				return err //errors.New("resolve type: " + receiverType.String() + " " + err.Error())
-			}
-			reflect.ValueOf(abstraction).Elem().Set(reflect.ValueOf(instance))
-			return nil
+		b, err := c.getBinding(elem, option.name)
+		if err != nil {
+			return errors.New("resolve type: " + receiverType.String() + " no concrete found for: " + elem.String())
 		}
 
-		return errors.New("resolve type: " + receiverType.String() + " no concrete found for: " + elem.String())
+		args := b.specifiedParameters
+		if len(option.args) > 0 {
+			for i, v := range option.args {
+				args[i] = v
+			}
+		}
+		oldArgs := b.specifiedParameters
+		b.specifiedParameters = args
+		defer func() {
+			b.specifiedParameters = oldArgs
+		}()
+		instance, err := b.resolve(c)
+		if err != nil {
+			return err //errors.New("resolve type: " + receiverType.String() + " " + err.Error())
+		}
+		reflect.ValueOf(abstraction).Elem().Set(reflect.ValueOf(instance))
+		return nil
 	}
-
 	return errors.New("container: invalid abstraction")
 }
 
 // Call takes a function (receiver) with one or more arguments of the abstractions (interfaces).
 // It invokes the function (receiver) and passes the related implementations.
-func (c Container) Call(function interface{}, options ...CallOption) ([]interface{}, error) {
+func (c *Container) Call(function interface{}, options ...CallOption) ([]interface{}, error) {
 	receiverType := reflect.TypeOf(function)
 	if receiverType == nil || receiverType.Kind() != reflect.Func {
 		return nil, errors.New("container: invalid function")
@@ -290,7 +332,7 @@ func (c Container) Call(function interface{}, options ...CallOption) ([]interfac
 }
 
 // Fill takes a struct and resolves the fields with the tag `optional:"true"` or `name:"dependOnName1"`
-func (c Container) Fill(structure interface{}) error {
+func (c *Container) Fill(structure interface{}) error {
 	// 获取入参类型
 	receiverType := reflect.TypeOf(structure)
 	if receiverType == nil {
@@ -319,7 +361,7 @@ func (c Container) Fill(structure interface{}) error {
 					optional = strings.ToLower(b) == "true"
 				}
 
-				namedBinding, ok := c[fType]
+				namedBinding, ok := c.bind[fType]
 				if !ok {
 					if optional {
 						continue
@@ -357,9 +399,12 @@ func (c Container) Fill(structure interface{}) error {
 }
 
 // Reset deletes all the existing bindings and empties the container instance.
-func (c Container) Reset() {
-	for k := range c {
-		delete(c, k)
+func (c *Container) Reset() {
+	for k := range c.bind {
+		delete(c.bind, k)
+	}
+	for k := range c.alias {
+		delete(c.alias, k)
 	}
 }
 
@@ -397,6 +442,15 @@ func RegisterInstance(interfacePtr interface{}, instance interface{}, options ..
 	return container.RegisterInstance(interfacePtr, instance, options...)
 }
 
+//RegisterSubInterface set sub interface map to another interface
+func RegisterSubInterface(subInterfacePtr interface{}, interfacePtr interface{}) error {
+	return container.RegisterSubInterface(subInterfacePtr, interfacePtr)
+}
+
+//SetDefaultBinding change default binding to another name
+func SetDefaultBinding(interfacePtr interface{}, defaultName string) error {
+	return container.SetDefaultBinding(interfacePtr, defaultName)
+}
 func isNil(i interface{}) bool {
 	vi := reflect.ValueOf(i)
 	if vi.Kind() == reflect.Ptr {

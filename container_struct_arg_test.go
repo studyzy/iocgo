@@ -22,15 +22,15 @@ func NewFoobarWithInput(input *FoobarInput) Foobarer {
 }
 func TestContainer_RegisterStructInitArg(t *testing.T) {
 	log = ""
-	container := NewContainer()
+	defer Reset()
 	input := &FoobarInput{
 		msg: "studyzy",
 	}
-	container.Register(NewFoobarWithInput, Parameters(map[int]interface{}{0: input}))
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
+	Register(NewFoobarWithInput, Parameters(map[int]interface{}{0: input}))
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
 	var fb Foobarer
-	err := container.Resolve(&fb)
+	err := Resolve(&fb)
 	assert.Nil(t, err)
 	fb.Say(123, "Hello World")
 	t.Log(log)
@@ -41,13 +41,13 @@ func TestContainer_RegisterStructInitArg(t *testing.T) {
 
 func TestContainer_Fill(t *testing.T) {
 	log = ""
-	container := NewContainer()
+	defer Reset()
 	input := FoobarInput{
 		msg: "studyzy",
 	}
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
-	err := container.Fill(&input)
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
+	err := Fill(&input)
 	assert.Nil(t, err)
 	t.Logf("%#v", input)
 	assert.NotNil(t, input.foo)
@@ -55,15 +55,15 @@ func TestContainer_Fill(t *testing.T) {
 }
 func TestContainer_ResolveStructInitArg(t *testing.T) {
 	log = ""
-	container := NewContainer()
-	container.Register(NewFoobarWithInput)
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
+	defer Reset()
+	Register(NewFoobarWithInput)
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
 	var fb Foobarer
 	input := &FoobarInput{
 		msg: "studyzy",
 	}
-	err := container.Resolve(&fb, Arguments(map[int]interface{}{0: input}))
+	err := Resolve(&fb, Arguments(map[int]interface{}{0: input}))
 	assert.Nil(t, err)
 	fb.Say(123, "Hello World")
 	t.Log(log)
@@ -87,15 +87,15 @@ func NewFoobarWithInputTag(input *FoobarInputWithTag) Foobarer {
 }
 func TestContainer_ResolveStructInitArgOptional(t *testing.T) {
 	log = ""
-	container := NewContainer()
+	defer Reset()
 	input := &FoobarInputWithTag{
 		msg: "studyzy",
 	}
-	container.Register(NewFoobarWithInputTag, Parameters(map[int]interface{}{0: input}))
-	container.Register(func() Barer { return &Bar{} }, Name("bar"))
-	container.Register(func() Barer { return &Baz{} }, Name("baz"))
+	Register(NewFoobarWithInputTag, Parameters(map[int]interface{}{0: input}))
+	Register(func() Barer { return &Bar{} }, Name("bar"))
+	Register(func() Barer { return &Baz{} }, Name("baz"))
 	var fb Foobarer
-	err := container.Resolve(&fb)
+	err := Resolve(&fb)
 	assert.Nil(t, err)
 	fb.Say(123, "Hello World")
 	t.Log(log)
@@ -112,14 +112,14 @@ type FoobarInputMultiBar struct {
 
 func TestContainer_FillSlice(t *testing.T) {
 	log = ""
-	container := NewContainer()
+	defer Reset()
 	input := FoobarInputMultiBar{
 		msg: "studyzy",
 	}
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} }, Name("bar"))
-	container.Register(func() Barer { return &Baz{} }, Name("baz"))
-	err := container.Fill(&input)
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} }, Name("bar"))
+	Register(func() Barer { return &Baz{} }, Name("baz"))
+	err := Fill(&input)
 	assert.Nil(t, err)
 	t.Logf("%#v", input)
 	assert.NotNil(t, input.foo)

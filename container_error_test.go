@@ -8,44 +8,47 @@ import (
 )
 
 func TestContainer_DependenceNotFound(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewFoobar)
-	//container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
+	defer Reset()
+	err := Register(NewFoobar)
+	assert.Nil(t, err)
+	//Register(func() Fooer { return &Foo{} })
+	err = Register(func() Barer { return &Bar{} })
+	assert.Nil(t, err)
 	var fb Foobarer
-	err := container.Resolve(&fb)
+	err = Resolve(&fb)
 	assert.NotNil(t, err)
 	t.Log(err)
 }
 func TestContainer_RegisterNotAFunctionError(t *testing.T) {
-	container := NewContainer()
-	err := container.Register(&Foo{})
+	defer Reset()
+	err := Register(&Foo{})
 	assert.NotNil(t, err)
 	t.Log(err)
 }
 func TestContainer_RegisterInterfaceError(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewFoobar)
+	defer Reset()
+	err := Register(NewFoobar)
+	assert.Nil(t, err)
 	var f Fooer
-	err := container.Register(NewFoo, Interface(f))
+	err = Register(NewFoo, Interface(f))
 	assert.NotNil(t, err)
 	t.Log(err)
 	//var b Barer
-	err = container.Register(NewBar, Interface(&f))
+	err = Register(NewBar, Interface(&f))
 	assert.NotNil(t, err)
 	t.Log(err)
 	var fb Foobarer
-	err = container.Resolve(&fb)
+	err = Resolve(&fb)
 	assert.NotNil(t, err)
 	t.Log(err)
 }
 func TestContainer_RegisterInstanceError(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewFoobar)
-	container.Register(func() Fooer { return &Foo{} })
+	defer Reset()
+	Register(NewFoobar)
+	Register(func() Fooer { return &Foo{} })
 	b := NewBar()
 	var bar Barer
-	err := container.RegisterInstance(bar, b)
+	err := RegisterInstance(bar, b)
 	assert.NotNil(t, err)
 	t.Log(err)
 }
@@ -55,16 +58,16 @@ type Foobarer2 interface {
 }
 
 func TestContainer_ResolveError(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "studyzy"}))
-	container.Register(func() Fooer { return &Foo{} })
-	container.Register(func() Barer { return &Bar{} })
+	defer Reset()
+	Register(NewFoobarWithMsg, Parameters(map[int]interface{}{2: "studyzy"}))
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
 	var fb Foobarer
-	err := container.Resolve(fb, Arguments(map[int]interface{}{2: "arg2"})) //resolve use new argument to replace register parameters
+	err := Resolve(fb, Arguments(map[int]interface{}{2: "arg2"})) //resolve use new argument to replace register parameters
 	assert.NotNil(t, err)
 	t.Log(err)
 	var fb2 Foobarer2
-	err = container.Resolve(&fb2)
+	err = Resolve(&fb2)
 	assert.NotNil(t, err)
 	t.Log(err)
 
@@ -79,16 +82,16 @@ func NewFoobarError(f Fooer, b Barer) (Foobarer, error) {
 	}, nil
 }
 func TestContainer_ResolveReturnError(t *testing.T) {
-	container := NewContainer()
-	container.Register(NewFoobarError, Optional(0))
+	defer Reset()
+	Register(NewFoobarError, Optional(0))
 
-	container.Register(func() Barer { return &Bar{} })
+	Register(func() Barer { return &Bar{} })
 	var fb Foobarer
-	err := container.Resolve(&fb)
+	err := Resolve(&fb)
 	assert.NotNil(t, err)
 	assert.Equal(t, "input nil", err.Error())
 	t.Log(err)
-	container.Register(func() Fooer { return &Foo{} })
-	err = container.Resolve(&fb)
+	Register(func() Fooer { return &Foo{} })
+	err = Resolve(&fb)
 	assert.Nil(t, err)
 }
