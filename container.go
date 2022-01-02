@@ -24,6 +24,30 @@ type binding struct {
 	optionalIndexes     map[int]bool        //哪些参数是可选的，如果可选，那么即使无法找到对应实例也不会报错
 }
 
+func (b *binding) Clone() *binding {
+	clone := &binding{
+		specifiedParameters: make(map[int]interface{}, len(b.specifiedParameters)),
+		dependsOn:           make(map[int]string, len(b.dependsOn)),
+		constructor:         b.constructor,
+		instance:            b.instance,
+		isTransient:         b.isTransient,
+		isDefault:           b.isDefault,
+		name:                b.name,
+		resolveTypes:        b.resolveTypes,
+		optionalIndexes:     make(map[int]bool, len(b.optionalIndexes)),
+	}
+	for k, v := range b.specifiedParameters {
+		clone.specifiedParameters[k] = v
+	}
+	for k, v := range b.dependsOn {
+		clone.dependsOn[k] = v
+	}
+	for k, v := range b.optionalIndexes {
+		clone.optionalIndexes[k] = v
+	}
+	return clone
+}
+
 // resolve creates an appropriate implementation of the related abstraction
 func (b *binding) resolve(c *Container) (interface{}, error) {
 	if b.instance != nil {
@@ -49,6 +73,16 @@ type namedBinding struct {
 	namedBinding   map[string]*binding
 }
 
+func (b *namedBinding) Clone() *namedBinding {
+	clone := &namedBinding{
+		defaultBinding: b.defaultBinding.Clone(),
+		namedBinding:   make(map[string]*binding, len(b.namedBinding)),
+	}
+	for k, v := range b.namedBinding {
+		clone.namedBinding[k] = v.Clone()
+	}
+	return clone
+}
 func newNamedBinding(b *binding) *namedBinding {
 	bindings := make(map[string]*binding)
 	bindings[b.name] = b
@@ -407,6 +441,19 @@ func (c *Container) Reset() {
 		delete(c.alias, k)
 	}
 }
+func (c *Container) Clone() *Container {
+	clone := &Container{
+		bind:  make(map[reflect.Type]*namedBinding, len(c.bind)),
+		alias: make(map[reflect.Type]reflect.Type, len(c.alias)),
+	}
+	for k, v := range c.bind {
+		clone.bind[k] = v.Clone()
+	}
+	for k, v := range c.alias {
+		clone.alias[k] = v
+	}
+	return clone
+}
 
 // container is the global repository of bindings
 var container = NewContainer()
@@ -457,4 +504,7 @@ func isNil(i interface{}) bool {
 		return vi.IsNil()
 	}
 	return false
+}
+func Clone() *Container {
+	return container.Clone()
 }

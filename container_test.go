@@ -356,3 +356,21 @@ func TestContainer_SetDefaultBinding(t *testing.T) {
 	assert.True(t, strings.Contains(log, "bar2:"))
 
 }
+func TestContainer_Clone(t *testing.T) {
+	log = ""
+	defer Reset()
+	Register(NewFoobar)
+	Register(func() Fooer { return &Foo{} }, Name("foo1"))
+	Register(func() Barer { return &Bar{} }, Name("bar1"))
+	Register(func() Barer { return &Bar2{} }, Name("bar2"))
+	var b Barer
+	newContainer := Clone()
+	SetDefaultBinding(&b, "bar2")
+	var fb Foobarer
+	newContainer.Resolve(&fb)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "foo:"))
+	assert.True(t, strings.Contains(log, "bar:"))
+
+}
