@@ -298,7 +298,7 @@ func (c *Container) invoke(function interface{}, specifiedParameters map[int]int
 	var errPtr *error
 	errType := reflect.TypeOf(errPtr).Elem()
 	for _, rt := range returns {
-		if !rt.IsNil() && rt.Type().Implements(errType) { //返回类型中有不为空的error
+		if rt.Type().Implements(errType) && !rt.IsNil() { //返回类型中有不为空的error
 			return nil, rt.Interface().(error)
 		}
 		returnList = append(returnList, rt.Interface())

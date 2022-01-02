@@ -374,3 +374,17 @@ func TestContainer_Clone(t *testing.T) {
 	assert.True(t, strings.Contains(log, "bar:"))
 
 }
+func TestContainer_ResolveString(t *testing.T) {
+	log = ""
+	defer Reset()
+	Register(func() string { return "mock" })
+	Register(func(s string) Foobarer { return &Foobar{msg: s} })
+	Register(func() Fooer { return &Foo{} })
+	Register(func() Barer { return &Bar{} })
+	var fb Foobarer
+	err := Resolve(&fb)
+	assert.Nil(t, err)
+	fb.Say(123, "Hello World")
+	t.Log(log)
+	assert.True(t, strings.Contains(log, "mock"))
+}
